@@ -30,6 +30,8 @@ def format_data(input_file, prettier_version="prettier@3.4.2"):
     command = ["npx", prettier_version, "--write", input_file]
     subprocess.run(command, check=True)
     print(f"Contents of {input_file} has been formatted using {prettier_version}")
+    
+    return f"Contents of {input_file} has been formatted using {prettier_version}"
 
 
 def count_days(input_file, output_file, day, use_fuzzy_parsing=False):
@@ -78,6 +80,8 @@ def count_days(input_file, output_file, day, use_fuzzy_parsing=False):
     if count is not None:
         print(f"Number of {day} is {count}")
         print(f"Temp is {temp}")
+    
+    return count
 
 
 def sort_contacts(input_file, output_file):
@@ -87,6 +91,8 @@ def sort_contacts(input_file, output_file):
     with open(output_file, "w") as f:
         json.dump(sorted_contacts, f, indent=4)
     print(f"Contacts have been sorted and stored at {output_file}")
+    
+    return f"Contacts have been sorted and stored at {output_file}"
 
 
 def get_recent_logs(log_dir, output_file, n):
@@ -102,6 +108,8 @@ def get_recent_logs(log_dir, output_file, n):
     with open(output_file, "w") as f:
         f.write("\n".join(first_lines))
     print(f"{n} most recent logs have been stored at {output_file}")
+    
+    return f"{n} most recent logs have been stored at {output_file}"
 
 def create_markdown_index(docs_dir, output_file):
     index = {}
@@ -118,6 +126,8 @@ def create_markdown_index(docs_dir, output_file):
     with open(output_file, "w") as f:
         json.dump(index, f, indent=4)
     print(f"Markdown content has been stored at {output_file}")
+    
+    return f"Markdown content has been stored at {output_file}"
 
 def extract_email_content(input_file, output_file, query):
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -136,6 +146,8 @@ def extract_email_content(input_file, output_file, query):
     with open(output_file, "w") as f:
         f.write(extracted_info)
     print(f"{extracted_info}")
+    
+    return extracted_info
 
 def extract_credit_card(input_file, output_file):
     if not os.path.exists(input_file):
@@ -154,6 +166,7 @@ def extract_credit_card(input_file, output_file):
         ]
     }
     response = requests.post(API_URL, json=payload, headers=headers)
+    card_number = 0
     if response.status_code == 200:
         result = response.json()
         card_number = result.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -165,6 +178,8 @@ def extract_credit_card(input_file, output_file):
             print("No credit card number detected.")
     else:
         print(f"Error in LLM response: {response.status_code}")
+        
+    return card_number
 
 def find_similar_comments(input_file, output_file):
     API_URL_EMBEDDING = "https://aiproxy.sanand.workers.dev/openai/v1/embeddings"
@@ -195,6 +210,8 @@ def find_similar_comments(input_file, output_file):
             f.write(f"{most_similar_pair[0]}\n")
             f.write(f"{most_similar_pair[1]}\n")
         print("Most similar comments have been written")
+        
+    return f"{most_similar_pair[0]}\n{most_similar_pair[1]}"
 
 def calculate_total_sales(db_file, output_file, ticket_type):
     conn = sqlite3.connect(db_file)
@@ -205,11 +222,16 @@ def calculate_total_sales(db_file, output_file, ticket_type):
     with open(output_file, "w") as f:
         f.write(str(total_sales))
     print(f"Total sales of {ticket_type} ticket is {total_sales}")
+    
+    return f"Total sales of {ticket_type} ticket is {total_sales}"
 
 def fetch_api_data(api_url, output_file):
     response = requests.get(api_url)
-    with open(output_file, "w") as f:
-        f.write(response.text)
+    if os.path.exists(output_file):
+        with open(output_file, "w") as f:
+            f.write(response.text)
+        
+    return response.text
 
 def clone_git_repo(repo_url, commit_message="Done"):
     subprocess.run(["git", "clone", repo_url], check=True)
@@ -234,8 +256,8 @@ def scrape_website(url, output_file = None):
     if os.path.exists(output_file):
         with open(output_file, "w") as f:
             f.write(response.text)
-    else:
-        return response.text
+            
+    return response.text
 
 
 def compress_resize_image(input_file, output_file, size):
@@ -258,7 +280,8 @@ def transcribe_audio(audio_file, output_file=None):
     
     if os.path.exists(output_file):
         with open(output_file, "w") as f:
-            f.write(transcription)    
+            f.write(transcription) 
+            
     return transcription
 
 def htmlconvert(md_file, html_file):
@@ -267,6 +290,8 @@ def htmlconvert(md_file, html_file):
     html_content = markdown.markdown(md_content)
     with open(html_file, "w") as f:
         f.write(html_content)
+        
+    return html_content
 
 def filter_csv(csv_file, output_json, column, value):
     df = pd.read_csv(csv_file)
