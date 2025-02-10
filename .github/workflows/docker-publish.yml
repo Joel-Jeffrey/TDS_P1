@@ -24,4 +24,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: YOUR_DOCKER_USERNAME/my-secure-app:latest
+          tags: joeljeff/main:latest
