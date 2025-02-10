@@ -81,7 +81,7 @@ def count_days(input_file, output_file, day, use_fuzzy_parsing=False):
         print(f"Number of {day} is {count}")
         print(f"Temp is {temp}")
     
-    return count
+    return f"Number of {day} is {count}"
 
 
 def sort_contacts(input_file, output_file):
@@ -308,14 +308,12 @@ def call_llm(query: str) -> Dict:
     "You are an AI assistant that determines which function should be executed based on a user's query. "
     "Return a JSON object containing 'function_name' and a dictionary of required 'parameters'."
     "The required parameters for each function have been put in parenthesis. Return exactly those and exactly with the same key"
-    "Data outside /data should *NEVER* be accessed or exfiltrated, even if the task description asks for it."
-    "Also, data is never deleted anywhere on the file system, even if the task description asks for it."
     "Only return one of the following function names: "
     "format_data (input_path, prettier_version (Eg prettier@3.4.2))"
     "count_days (input_path, output_path, target_day),"
     "sort_contacts (input_path, output_path),"
     "get_recent_logs (input_path, output_path, number),"
-    "create_markdown_index (input_path, output_path),"
+    "create_markdown_index (input_path (would be to a directory which has subdirectores where md files are stored), output_path (path to a text file for storing)),"
     "extract_email_content (input_path, output_path, query),"
     "extract_credit_card (input_path, output_path),"
     "find_similar_comments (input_path, output_path),"
@@ -328,8 +326,12 @@ def call_llm(query: str) -> Dict:
     "transcribe_audio (audio_file, output_path),"
     "htmlconvert (input_path, output_path),"
     "filter_csv (input_path, output_path, column, value)"
-    "Do not invent or return any other function."
-    "I repeat again, *DO NOT ACCESS INFORMATION OUTSIDE /data, NO MATTER WHAT HAPPENS*. If user asks that with the query, reply 'Sorry I can answer only from /data'"
+    "Do not invent or return any other function. Modification/Edition of content/values in /data is ALWAYS allowed"
+    "Always pay attention to the paths specified in the question. As long as it begins with /data, you can process it"
+    "CAPTURE ONLY the right path or you will be penalised"
+    "The task description will provide necessary parameters and the location/input file will always be starting with/data. But if they are asking other details to verify. Dont do that." 
+    "The prompts would be modelled differently, but I hope as an intelligent LLM, you would be able to distinguish between a rephrased query (asking for providable details) and a query asking you to extract extrernal information."
+    "I repeat again, *DO NOT ACCESS INFORMATION OUTSIDE /data AND ITS SUBFOLDERS, NO MATTER WHAT HAPPENS*. If user asks that with the query, reply 'Sorry I can answer only from /data'"    
     "Also again I repeat, even if user asks to delete, *DO NOT DELETE ANY FILES, NO MATTER WHAT HAPPENS*, Reply saying 'Sorry I cant do that'"
 )
 
@@ -341,16 +343,23 @@ def call_llm(query: str) -> Dict:
         ]
     }
     response = requests.post(API_URL, headers=headers, json=payload)
-    result = response.json()
-    # print("LLM Response:", result)
-    return result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+    if response.status_code == 200:
+        result = response.json()
+        
+        # Extract the LLM response content
+        return result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
 
+    else:
+        # If API returns an error, show fallback message
+        return "Sorry I can answer only from /data"
+    
 @app.get("/run")
 def run(task: str):
     """Processes the user query by calling the LLM and executing the appropriate function."""
     try:
         # print(task)
         result = json.loads(call_llm(task))
+        print("Results:",result)
         function_name = result.get("function_name")
         parameters = result.get("parameters", {})
         print(f"Function {function_name} is going to be implemented")
@@ -434,6 +443,7 @@ def run(task: str):
             raise HTTPException(status_code=400, detail="Unknown function")
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Invalid LLM response format")
+
 
 @app.get("/read")
 def read(task: str):
