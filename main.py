@@ -1,31 +1,30 @@
-import datetime
-import json
-import os
-import sqlite3
-import re
-from dateutil import parser
-from PIL import Image
-import pytesseract
-import subprocess
+# Imports necessary packages
+import datetime    # Helps with counting number of days
+import json    # For all JSON related questions
+import os    # To get recent logs, and check if path exists
+import sqlite3    # For database operations
+import re    # For string operations
+from dateutil import parser    # Parses dates to Python datetime objects
+from PIL import Image    # For image related operations
+import pytesseract    # For OCR
+import subprocess    # For running parallel processes eg. markdown conversion using prettier
 from sentence_transformers import SentenceTransformer, util
-import requests
-import numpy as np
-from scipy.spatial.distance import cosine
-from fastapi import FastAPI, HTTPException
-import requests
-import json
-import os
-from typing import Dict
-import sqlite3
-import markdown
-from bs4 import BeautifulSoup
-import duckdb
-import csv
-import pandas as pd
+import requests    # For collecting API responses/scraping
+import numpy as np    # For numerical operations
+from scipy.spatial.distance import cosine    # For calculating similar embeddings
+from fastapi import FastAPI, HTTPException    # For building agent
+from typing import Dict    # For type hinting, when LLM is called and asked to return function and parameters
+import markdown    # For conversion to html from markdown
+from bs4 import BeautifulSoup    # For parsing data from HTML
+import duckdb    # For database/SQL queries
+import csv    # For reading/Writing csv files
+import pandas as pd    # For data analysis
 
+# API url and API key for the LLMs/Models that are called.
 API_URL = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
 API_KEY = os.getenv("API_KEY")
 
+# Formatting a given markdown file using perttier (by default prettier@3.4.2) 
 def format_data(input_file, prettier_version="prettier@3.4.2"):
     command = ["npx", prettier_version, "--write", input_file]
     subprocess.run(command, check=True)
@@ -33,7 +32,7 @@ def format_data(input_file, prettier_version="prettier@3.4.2"):
     
     return f"Contents of {input_file} has been formatted using {prettier_version}"
 
-
+# Counting the number of a specific day from the input file and writing it to an output file
 def count_days(input_file, output_file, day, use_fuzzy_parsing=False):
     count = 0
     temp = 0
@@ -83,7 +82,7 @@ def count_days(input_file, output_file, day, use_fuzzy_parsing=False):
     
     return f"Number of {day} is {count}"
 
-
+# Sorting the set of contacts in input file and writing the sorted list to output file
 def sort_contacts(input_file, output_file):
     with open(input_file, "r") as f:
         contacts = json.load(f)
@@ -94,7 +93,7 @@ def sort_contacts(input_file, output_file):
     
     return f"Contacts have been sorted and stored at {output_file}"
 
-
+# Retrieves the n most recent logs in a directory and writes them to an output file
 def get_recent_logs(log_dir, output_file, n):
     log_files = sorted(
         [f for f in os.listdir(log_dir) if f.endswith(".log")],
@@ -111,6 +110,7 @@ def get_recent_logs(log_dir, output_file, n):
     
     return f"{n} most recent logs have been stored at {output_file}"
 
+# Obtains a certain heading from md files in a directory and writes filename and content to output file
 def create_markdown_index(docs_dir, output_file):
     index = {}
     heading_pattern = re.compile(r"^(#{1,6})\s+(.+)")
@@ -129,6 +129,7 @@ def create_markdown_index(docs_dir, output_file):
     
     return f"Markdown content has been stored at {output_file}"
 
+# Extracts email content as needed from the query. Passes query to LLM and extracts the relevant information
 def extract_email_content(input_file, output_file, query):
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     with open(input_file, "r") as f:
@@ -149,6 +150,7 @@ def extract_email_content(input_file, output_file, query):
     
     return extracted_info
 
+# Gets the credit card number from the image
 def extract_credit_card(input_file, output_file):
     if not os.path.exists(input_file):
         print(f"File not found: {input_file}")
@@ -181,6 +183,7 @@ def extract_credit_card(input_file, output_file):
         
     return card_number
 
+# Takes in a set of comments and finds the most similar pair of comments and writes them to an output file
 def find_similar_comments(input_file, output_file):
     API_URL_EMBEDDING = "https://aiproxy.sanand.workers.dev/openai/v1/embeddings"
     headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -213,6 +216,7 @@ def find_similar_comments(input_file, output_file):
         
     return f"{most_similar_pair[0]}\n{most_similar_pair[1]}"
 
+# Calculates the total sales in a database corresponding to a particular ticket type
 def calculate_total_sales(db_file, output_file, ticket_type):
     conn = sqlite3.connect(db_file)
     cursor = conn.cursor()
@@ -225,6 +229,7 @@ def calculate_total_sales(db_file, output_file, ticket_type):
     
     return f"Total sales of {ticket_type} ticket is {total_sales}"
 
+# Collects information from a website and writes it to a file
 def fetch_api_data(api_url, output_file):
     response = requests.get(api_url)
     if os.path.exists(output_file):
@@ -233,11 +238,13 @@ def fetch_api_data(api_url, output_file):
         
     return response.text
 
+# Clones a github repo and commits
 def clone_git_repo(repo_url, commit_message="Done"):
     subprocess.run(["git", "clone", repo_url], check=True)
     repo_name = repo_url.split("/")[-1].replace(".git", "")
     subprocess.run(["git", "-C", repo_name, "commit", "-am", commit_message], check=True)
 
+# Runs a sql query on a database and writes the result to a file
 def run_sql_query(database, query, output_file = None):
     conn = sqlite3.connect(database)
     cursor = conn.cursor()
@@ -251,6 +258,7 @@ def run_sql_query(database, query, output_file = None):
     
     return result
 
+# Scrapes a website and writes its contents to a file
 def scrape_website(url, output_file = None):
     response = requests.get(url)
     if os.path.exists(output_file):
@@ -259,12 +267,13 @@ def scrape_website(url, output_file = None):
             
     return response.text
 
-
+# Compresses an input image to a specified size
 def compress_resize_image(input_file, output_file, size):
     image = Image.open(input_file)
     image = image.resize(size)
     image.save(output_file)
 
+# Transcribes an audio and saves the subtitles/transcriptions to a file
 def transcribe_audio(audio_file, output_file=None):
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     payload = {
@@ -284,6 +293,7 @@ def transcribe_audio(audio_file, output_file=None):
             
     return transcription
 
+# Converts a markdown file to html and writes html content to a file
 def htmlconvert(md_file, html_file):
     with open(md_file, "r") as f:
         md_content = f.read()
@@ -293,11 +303,13 @@ def htmlconvert(md_file, html_file):
         
     return html_content
 
+# Filters the csv based on the column and value and writes to a json
 def filter_csv(csv_file, output_json, column, value):
     df = pd.read_csv(csv_file)
     filtered_df = df[df[column] == value]
     filtered_df.to_json(output_json, orient="records")
 
+# Builds a FastAPI app to facilitate the above functions
 app = FastAPI()
 
 def call_llm(query: str) -> Dict:
