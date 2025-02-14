@@ -13,21 +13,62 @@ import requests    # For collecting API responses/scraping
 import numpy as np    # For numerical operations
 from scipy.spatial.distance import cosine    # For calculating similar embeddings
 from fastapi import FastAPI, HTTPException    # For building agent
+from fastapi.responses import PlainTextResponse
 from typing import Dict    # For type hinting, when LLM is called and asked to return function and parameters
 import markdown    # For conversion to html from markdown
 from bs4 import BeautifulSoup    # For parsing data from HTML
 import duckdb    # For database/SQL queries
 import csv    # For reading/Writing csv files
 import pandas as pd    # For data analysis
+import easyocr
+import cv2
+import time
 
 # API url and API key for the LLMs/Models that are called.
 API_URL = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
 API_KEY = os.getenv("API_KEY")
 
+# Installing uv and downloading datagen.py
+def install_and_run_datagen(url, user_email="user@example.com"):
+    datagen_url = url
+    # Step 1: Check if `uv` is installed, if not, install it
+    try:
+        subprocess.run(["uv", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print("✅ `uv` is already installed.")
+    except FileNotFoundError:
+        print("🔄 Installing `uv`...")
+        subprocess.run(["pip", "install", "uv"], check=True)
+    
+    # Step 2: Download `datagen.py`
+    print("🔄 Downloading `datagen.py`...")
+    response = requests.get(datagen_url)
+    if response.status_code == 200:
+        with open("datagen.py", "w") as f:
+            f.write(response.text)
+        print("✅ `datagen.py` downloaded successfully.")
+    else:
+        print("❌ Failed to download `datagen.py`. Check the URL or network connection.")
+        return
+    
+    try:
+        subprocess.run(["uv", "run", "datagen.py", user_email, "--root", "./data"], check=True)
+        print("✅ `datagen.py` executed successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to run `datagen.py`. Error: {e}")
+
+    try:
+        if os.path.exists("./data"):
+            subprocess.run(["sudo", "mv", "./data", "/"], check=True)
+            print("✅ `data` directory moved to root successfully.")
+        else:
+            print("❌ `data` directory not found in the current directory.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to move `data` directory. Error: {e}")
+
 # Formatting a given markdown file using perttier (by default prettier@3.4.2) 
 def format_data(input_file, prettier_version="prettier@3.4.2"):
-    command = ["npx", prettier_version, "--write", input_file]
-    subprocess.run(command, check=True)
+    subprocess.run(["npx", prettier_version, "--write", input_file], check=True)
+    
     print(f"Contents of {input_file} has been formatted using {prettier_version}")
     
     return f"Contents of {input_file} has been formatted using {prettier_version}"
@@ -88,7 +129,7 @@ def sort_contacts(input_file, output_file):
         contacts = json.load(f)
     sorted_contacts = sorted(contacts, key=lambda x: (x["last_name"], x["first_name"]))
     with open(output_file, "w") as f:
-        json.dump(sorted_contacts, f, indent=4)
+        json.dump(sorted_contacts, f)  # Write valid JSON
     print(f"Contacts have been sorted and stored at {output_file}")
     
     return f"Contacts have been sorted and stored at {output_file}"
@@ -100,12 +141,17 @@ def get_recent_logs(log_dir, output_file, n):
         key=lambda x: os.path.getmtime(os.path.join(log_dir, x)),
         reverse=True
     )[:n]
+
     first_lines = []
     for log_file in log_files:
-        with open(os.path.join(log_dir, log_file), "r") as f:
-            first_lines.append(f.readline().strip())
-    with open(output_file, "w") as f:
-        f.write("\n".join(first_lines))
+        with open(os.path.join(log_dir, log_file), "r", encoding="utf-8") as f:
+            line = f.readline().strip()
+            if line:
+                first_lines.append(line)
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        for line in first_lines:
+            f.write(line + "\n")
     print(f"{n} most recent logs have been stored at {output_file}")
     
     return f"{n} most recent logs have been stored at {output_file}"
@@ -117,17 +163,26 @@ def create_markdown_index(docs_dir, output_file):
     for root, _, files in os.walk(docs_dir):
         for file in files:
             if file.endswith(".md"):
+                folder_name = os.path.basename(os.path.dirname(os.path.join(root, file)))  # Get immediate preceding folder
+                key = f"{folder_name}/{file}"
                 with open(os.path.join(root, file), "r", encoding="utf-8") as f:
                     for line in f:
                         match = heading_pattern.match(line)
                         if match:
-                            index[file] = match.group(2)
+                            index[key] = match.group(2)
                             break
     with open(output_file, "w") as f:
         json.dump(index, f, indent=4)
     print(f"Markdown content has been stored at {output_file}")
     
     return f"Markdown content has been stored at {output_file}"
+
+def preprocess_image(input_file):
+    """Preprocess the image for better OCR accuracy."""
+    image = cv2.imread(input_file, cv2.IMREAD_GRAYSCALE)
+    image = cv2.GaussianBlur(image, (5, 5), 0)  # Reduce noise
+    image = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    return image
 
 # Extracts email content as needed from the query. Passes query to LLM and extracts the relevant information
 def extract_email_content(input_file, output_file, query):
@@ -155,10 +210,20 @@ def extract_credit_card(input_file, output_file):
     if not os.path.exists(input_file):
         print(f"File not found: {input_file}")
         return
-    image = Image.open(input_file)
-    extracted_text = pytesseract.image_to_string(image)
-    extracted_text = extracted_text.replace(" ", "").replace(".", "")
+    image = preprocess_image(input_file)
     
+    # Initialize EasyOCR reader
+    reader = easyocr.Reader(['en'])  
+    results = reader.readtext(image, detail=0)  
+
+    # Extract credit card number (concatenate detected numbers)
+    extracted_text = "".join(results).replace(" ", "").replace(".", "")
+
+    # Ensure extracted number has at least 12 digits (filtering out incorrect extractions)
+    # if len(extracted_text) < 12 or not extracted_text.isdigit():
+    #     print("No valid credit card number detected.")
+    #     return None    
+
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "gpt-4o-mini",
@@ -321,6 +386,7 @@ def call_llm(query: str) -> Dict:
     "Return a JSON object containing 'function_name' and a dictionary of required 'parameters'."
     "The required parameters for each function have been put in parenthesis. Return exactly those and exactly with the same key"
     "Only return one of the following function names: "
+    "install_and_run_datagen (url,email)"
     "format_data (input_path, prettier_version (Eg prettier@3.4.2))"
     "count_days (input_path, output_path, target_day),"
     "sort_contacts (input_path, output_path),"
@@ -330,14 +396,19 @@ def call_llm(query: str) -> Dict:
     "extract_credit_card (input_path, output_path),"
     "find_similar_comments (input_path, output_path),"
     "calculate_total_sales (input_path, output_path, ticket_type),"
-    "fetch_api_data (api_url, output_path),"
-    "clone_git_repo (repo_url, commit_message),"
-    "run_sql_query (database, query, output_path),"
-    "scrape_website (url, output_path),"
-    "compress_resize_image (input_path, output_path, size),"
-    "transcribe_audio (audio_file, output_path),"
-    "htmlconvert (input_path, output_path),"
-    "filter_csv (input_path, output_path, column, value)"
+    "If the function description matches any of the 10 functions above, return the function name and parameters directly."
+    "However, if it doesnt meet the description, check the below functions if they are satidfy the need. "
+    "fetch_api_data (api_url, output_path) - Only fetches data from API and writes to output file and display. Nothing more,"
+    "clone_git_repo (repo_url, commit_message) - Only clones a github repo and commits it with a commit message,"
+    "run_sql_query (database, query, output_path) - Only runs SQL query on the database (connected using sqlite3.connect) and performs the query, writing the result to an output file and display,"
+    "scrape_website (url, output_path) - Takes content from a url and write the content to a file and display,"
+    "compress_resize_image (input_path, output_path, size) - Only resizes the image to the specified size and saves it,"
+    "transcribe_audio (audio_file, output_path) - Only generates transcription for a given audio by passing it to an LLM (gpt-4o-mini),"
+    "htmlconvert (input_path, output_path) - Only converts markdown to html and writes html content to output file and display,"
+    "filter_csv (input_path, output_path, column, value) - Only filters a csv based on a column and value and writes it to output file"
+    "For each of the 8 functions above (format <function_name> (parameters) - <description>), check if the description meets the exact requirement in the task"
+    "If in any case the requirement *DOES NOT* meet the description, you have the responsibility to write a code and return content. Ideally the code expects function name and parameters. but only in this case adjust the same"
+    "However, be absolutely sure only do this when the description doesnt meet. Because it is crucial to stick to the normal scheme where you identify a function and return its name and parameters"
     "Do not invent or return any other function. Modification/Edition of content/values in /data is ALWAYS allowed"
     "Always pay attention to the paths specified in the question. As long as it begins with /data, you can process it"
     "CAPTURE ONLY the right path or you will be penalised"
@@ -357,7 +428,7 @@ def call_llm(query: str) -> Dict:
     response = requests.post(API_URL, headers=headers, json=payload)
     if response.status_code == 200:
         result = response.json()
-        
+        print(result)
         # Extract the LLM response content
         return result.get("choices", [{}])[0].get("message", {}).get("content", "{}")
 
@@ -365,7 +436,8 @@ def call_llm(query: str) -> Dict:
         # If API returns an error, show fallback message
         return "Sorry I can answer only from /data"
     
-@app.get("/run")
+@app.get("/run")  # Keep the existing GET method
+@app.post("/run")  # Add support for POST requests
 def run(task: str):
     """Processes the user query by calling the LLM and executing the appropriate function."""
     try:
@@ -375,11 +447,16 @@ def run(task: str):
         function_name = result.get("function_name")
         parameters = result.get("parameters", {})
         print(f"Function {function_name} is going to be implemented")
-        if function_name == "format_data":
+
+        if function_name == "install_and_run_datagen":
+            parameters["url"] = parameters.pop("url", None)
+            parameters["user_email"] = parameters.pop("email", None)
+            return install_and_run_datagen(**parameters)
+        elif function_name == "format_data":
             parameters["input_file"] = parameters.pop("input_path", None)
-            parameters["version"] = parameters.pop("prettier_version", None)
+            parameters["prettier_version"] = parameters.pop("prettier_version", None)
             return format_data(**parameters)
-        if function_name == "count_days":
+        elif function_name == "count_days":
             parameters["input_file"] = parameters.pop("input_path", None)
             parameters["output_file"] = parameters.pop("output_path", None)
             parameters["day"] = parameters.pop("target_day", None)
@@ -458,14 +535,15 @@ def run(task: str):
 
 
 @app.get("/read")
-def read(task: str):
-    """Reads content from a file path specified in the query parameter 'task'."""
-    if not os.path.exists(task):
-        raise HTTPException(status_code=404, detail=f"File not found: {task}")
+def read(path: str):
+    """Reads content from a file path specified in the query parameter 'path'."""
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
     try:
-        with open(task, "r", encoding="utf-8") as file:
+        with open(path, "r", encoding="utf-8") as file:
             content = file.read()
-        return {"file_path": task, "content": content}
+        # print(content)
+        return PlainTextResponse(content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
