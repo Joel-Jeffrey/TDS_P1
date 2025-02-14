@@ -56,14 +56,14 @@ def install_and_run_datagen(url, user_email="user@example.com"):
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to run `datagen.py`. Error: {e}")
 
-    try:
-        if os.path.exists("./data"):
-            subprocess.run(["sudo", "mv", "./data", "/"], check=True)
-            print("✅ `data` directory moved to root successfully.")
-        else:
-            print("❌ `data` directory not found in the current directory.")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to move `data` directory. Error: {e}")
+    # try:
+    #     if os.path.exists("./data"):
+    #         subprocess.run(["sudo", "mv", "./data", "/"], check=True)
+    #         print("✅ `data` directory moved to root successfully.")
+    #     else:
+    #         print("❌ `data` directory not found in the current directory.")
+    # except subprocess.CalledProcessError as e:
+    #     print(f"❌ Failed to move `data` directory. Error: {e}")
 
 # Formatting a given markdown file using perttier (by default prettier@3.4.2) 
 def format_data(input_file, prettier_version="prettier@3.4.2"):
