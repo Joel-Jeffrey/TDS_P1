@@ -26,7 +26,7 @@ import time
 
 # API url and API key for the LLMs/Models that are called.
 API_URL = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("AIPROXY_TOKEN")
 
 # Installing uv and downloading datagen.py
 def install_and_run_datagen(url, user_email="user@example.com"):
