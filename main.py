@@ -24,6 +24,7 @@ import easyocr
 import cv2
 import time
 
+print("🌍 Environment Variables at Startup:", os.environ)  # Print immediately
 # API url and API key for the LLMs/Models that are called.
 API_URL = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
 API_KEY = os.getenv("AIPROXY_TOKEN")
