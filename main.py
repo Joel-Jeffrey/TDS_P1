@@ -28,6 +28,8 @@ import time
 API_URL = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
 API_KEY = os.getenv("AIPROXY_TOKEN")
 
+print("API Key Retrieved:", API_KEY)
+
 # Installing uv and downloading datagen.py
 def install_and_run_datagen(url, user_email="user@example.com"):
     datagen_url = url
